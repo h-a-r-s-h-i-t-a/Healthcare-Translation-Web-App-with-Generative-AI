@@ -1,13 +1,17 @@
 import streamlit as st
-import speech_recognition as sr
 from googletrans import Translator
 from gtts import gTTS
-import os
 import tempfile
 import io
+import numpy as np
+import sounddevice as sd
+from google.cloud import speech
+from io import BytesIO
+import google.auth
+from google.auth import exceptions
 
-# Initialize recognizer and translator
-recognizer = sr.Recognizer()
+
+# Initialize translator
 translator = Translator()
 
 # Define language codes
@@ -82,10 +86,33 @@ def language_selection():
 
 # Function to capture and translate speech
 def capture_and_translate(input_lang_code, output_lang_code):
-    with sr.Microphone() as source:
-        audio = recognizer.listen(source)
     try:
-        recognized_text = recognizer.recognize_google(audio, language=input_lang_code)
+        # Load credentials from the service account file
+        credentials, project = google.auth.load_credentials_from_file(r"C:\Users\Hp\Downloads\healthcare-441317-834f74a710d0.json")
+        client = speech.SpeechClient(credentials=credentials)
+    except exceptions.DefaultCredentialsError as e:
+        st.error(f"Error loading credentials: {e}")
+        return None, None
+
+    st.write("Listening...")
+    # Record audio using sounddevice
+    audio_data = sd.rec(int(5 * 16000), samplerate=16000, channels=1, dtype='int16')
+    sd.wait()
+
+    # Convert audio data to bytes
+    audio_bytes = BytesIO(audio_data.tobytes())
+
+    # Send audio to Google Cloud Speech-to-Text API
+    audio = speech.RecognitionAudio(content=audio_bytes.getvalue())
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=16000,
+        language_code=input_lang_code,
+    )
+
+    try:
+        response = client.recognize(config=config, audio=audio)
+        recognized_text = response.results[0].alternatives[0].transcript
         translated_text = translator.translate(recognized_text, src=input_lang_code, dest=output_lang_code).text
         return recognized_text, translated_text
     except Exception as e:
